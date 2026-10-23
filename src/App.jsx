@@ -63,6 +63,12 @@ const EMPTY_FORM = {
   notes: "",
 };
 
+const { data, error } = await supabase
+  .from("tasks")
+  .select("*")
+  .eq("user_id", session.user.id)
+  .order("created_at", { ascending: false });
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -521,7 +527,10 @@ export default function App() {
                             task={task}
                             onEdit={() => openEditTask(task)}
                             onComplete={() =>
-                              updateTask(task.id, { done: true })
+                              updateTask(task.id, {
+                                done: true,
+                                completed_at: new Date().toISOString(),
+                              })
                             }
                             onDelete={() => moveToTrash(task)}
                           />
@@ -550,7 +559,10 @@ export default function App() {
                       task={task}
                       onEdit={() => openEditTask(task)}
                       onComplete={() =>
-                        updateTask(task.id, { done: true })
+                        updateTask(task.id, {
+                          done: true,
+                          completed_at: new Date().toISOString(),
+                        })
                       }
                       onDelete={() => moveToTrash(task)}
                     />
@@ -574,7 +586,10 @@ export default function App() {
                   task={task}
                   onEdit={() => openEditTask(task)}
                   onComplete={() =>
-                    updateTask(task.id, { done: false })
+                    updateTask(task.id, {
+                      done: false,
+                      completed_at: null,
+                    })
                   }
                   onDelete={() => moveToTrash(task)}
                 />
