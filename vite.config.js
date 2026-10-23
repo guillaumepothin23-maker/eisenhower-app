@@ -15,6 +15,10 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
 
+      workbox: {
+        cleanupOutdatedCaches: true,
+      },
+
       manifest: {
         name: 'Matrice Eisenhower',
         short_name: 'Eisenhower',
