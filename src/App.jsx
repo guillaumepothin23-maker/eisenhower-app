@@ -801,19 +801,35 @@ function TaskCard({
 }) {
   const today = new Date().toISOString().slice(0, 10);
 
+  const dueDate = task.due
+    ? String(task.due).slice(0, 10)
+    : null;
+
   const overdue =
-    task.due &&
-    task.due < today &&
+    dueDate &&
+    dueDate < today &&
     !task.done;
 
   function formatDate(date) {
     if (!date) return "Sans échéance";
 
+    const dateString =
+      typeof date === "string" && date.includes("T")
+        ? date
+        : `${date}T12:00:00`;
+
+    const parsedDate = new Date(dateString);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      console.warn("Date invalide :", date);
+      return "Date invalide";
+    }
+
     return new Intl.DateTimeFormat("fr-FR", {
       day: "numeric",
       month: "short",
       year: "numeric",
-    }).format(new Date(`${date}T12:00:00`));
+    }).format(parsedDate);
   }
 
   return (
