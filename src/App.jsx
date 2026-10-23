@@ -63,21 +63,15 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-const { data, error } = await supabase
-  .from("tasks")
-  .select("*")
-  .eq("user_id", session.user.id)
-  .order("created_at", { ascending: false });
-
 const formatDueDate = (due) => {
-  if (!due) return null
+  if (!due) return "";
 
-  const date = new Date(due)
+  const normalizedDate = String(due).slice(0, 10);
 
-  if (isNaN(date.getTime())) return null
-
-  return format(date, 'dd/MM/yyyy')
-}
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)
+    ? normalizedDate
+    : "";
+};
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -152,6 +146,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("tasks")
       .select("*")
+      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -813,17 +808,26 @@ function TaskCard({
   function formatDate(date) {
     if (!date) return "Sans échéance";
 
-    const dateString =
-      typeof date === "string" && date.includes("T")
-        ? date
-        : `${date}T12:00:00`;
+    const normalizedDate = String(date).slice(0, 10);
+    const match = normalizedDate.match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
 
-    const parsedDate = new Date(dateString);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      console.warn("Date invalide :", date);
+    if (!match) {
+      console.warn("Date d'échéance invalide :", date);
       return "Date invalide";
     }
+
+    const [, year, month, day] = match;
+
+    const parsedDate = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      12,
+      0,
+      0
+    );
 
     return new Intl.DateTimeFormat("fr-FR", {
       day: "numeric",
