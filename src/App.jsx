@@ -69,6 +69,16 @@ const { data, error } = await supabase
   .eq("user_id", session.user.id)
   .order("created_at", { ascending: false });
 
+const formatDueDate = (due) => {
+  if (!due) return null
+
+  const date = new Date(due)
+
+  if (isNaN(date.getTime())) return null
+
+  return format(date, 'dd/MM/yyyy')
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -168,7 +178,7 @@ export default function App() {
     setForm({
       title: task.title,
       quadrant: task.quadrant,
-      due: task.due ?? "",
+      due: formatDueDate(task.due) ?? "",
       tag: task.tag ?? "Perso",
       notes: task.notes ?? "",
     });
