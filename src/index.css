@@ -836,3 +836,15 @@ textarea::placeholder {
     margin-left: 0;
   }
 }
+
+.deadline.soon {
+  color: #c2410c;
+  background: #ffedd5;
+  font-weight: 700;
+}
+
+.deadline.overdue {
+  color: #b91c1c;
+  background: #fee2e2;
+  font-weight: 700;
+}

@@ -74,6 +74,83 @@ const formatDueDate = (due) => {
     : "";
 };
 
+function getDeadlineInfo(due, done) {
+  if (!due || done) return null;
+
+  // On ne conserve que YYYY-MM-DD, comme formatDueDate()
+  const normalizedDate = String(due).slice(0, 10);
+
+  const match = normalizedDate.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if (!match) {
+    return {
+      type: "normal",
+      label: null,
+    };
+  }
+
+  const [, year, month, day] = match;
+
+  // Une tâche est considérée comme due à la fin du jour choisi.
+  // Construction en heure LOCALE pour éviter les décalages UTC.
+  const deadline = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    17,
+    0,
+    0,
+    0
+  );
+
+  const now = new Date();
+  const diffMs = deadline.getTime() - now.getTime();
+
+  const HOUR_MS = 60 * 60 * 1000;
+  const DAY_MS = 24 * HOUR_MS;
+
+  // Échéance dépassée
+  if (diffMs < 0) {
+    const overdueMs = Math.abs(diffMs);
+    const days = Math.floor(overdueMs / DAY_MS);
+    const hours = Math.floor(
+      (overdueMs % DAY_MS) / HOUR_MS
+    );
+
+    return {
+      type: "overdue",
+      label:
+        days > 0
+          ? `En retard de ${days} j ${hours} h`
+          : `En retard de ${hours} h`,
+    };
+  }
+
+  // Échéance dans moins de 48 h
+  if (diffMs < 48 * HOUR_MS) {
+    const days = Math.floor(diffMs / DAY_MS);
+    const hours = Math.floor(
+      (diffMs % DAY_MS) / HOUR_MS
+    );
+
+    return {
+      type: "soon",
+      label:
+        days > 0
+          ? `Dans ${days} j ${hours} h`
+          : `Dans ${hours} h`,
+    };
+  }
+
+  return {
+    type: "normal",
+    label: null,
+  };
+}
+
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -795,16 +872,11 @@ function TaskCard({
   onComplete,
   onDelete,
 }) {
-  const today = new Date().toISOString().slice(0, 10);
 
-  const dueDate = task.due
-    ? String(task.due).slice(0, 10)
-    : null;
-
-  const overdue =
-    dueDate &&
-    dueDate < today &&
-    !task.done;
+  const deadlineInfo = getDeadlineInfo(
+    task.due,
+    task.done
+  );
 
   function formatDate(date) {
     if (!date) return "Sans échéance";
@@ -877,10 +949,18 @@ function TaskCard({
         )}
 
         <div className="task-meta">
-          <span className={overdue ? "overdue" : ""}>
+          <span
+            className={
+              deadlineInfo?.type === "overdue"
+                ? "deadline overdue"
+                : deadlineInfo?.type === "soon"
+                ? "deadline soon"
+                : "deadline"
+            }
+          >
             <Clock3 size={13} />
-            {formatDate(task.due)}
-            {overdue && " · en retard"}
+
+            {deadlineInfo?.label || formatDate(task.due)}
           </span>
 
           <span className="task-tag">
