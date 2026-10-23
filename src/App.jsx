@@ -15,6 +15,7 @@ import {
   LogOut,
   Loader2,
 } from "lucide-react";
+import ReloadPrompt from './ReloadPrompt'
 
 import { supabase } from "./supabase";
 import "./index.css";
@@ -844,6 +845,9 @@ function TaskCard({
         e.dataTransfer.setData("taskId", task.id)
       }
     >
+      <>
+      <ReloadPrompt />
+      </>
       <button
         className={
           task.done
