@@ -14,6 +14,7 @@ import {
   Clock3,
   LogOut,
   Loader2,
+  Settings
 } from "lucide-react";
 import ReloadPrompt from './ReloadPrompt'
 
@@ -64,6 +65,13 @@ const EMPTY_FORM = {
   notes: "",
 };
 
+const DEFAULT_SETTINGS = {
+  end_of_day: "17:00",
+  due_soon_hours: 48,
+  trash_retention_days: 30,
+  completed_retention_days: 7,
+};
+
 const formatDueDate = (due) => {
   if (!due) return "";
 
@@ -74,7 +82,12 @@ const formatDueDate = (due) => {
     : "";
 };
 
-function getDeadlineInfo(due, done) {
+function getDeadlineInfo(
+                          due,
+                          done,
+                          endOfDay = "17:00",
+                          dueSoonHours = 48
+                        ) {
   if (!due || done) return null;
 
   // On ne conserve que YYYY-MM-DD, comme formatDueDate()
@@ -95,12 +108,24 @@ function getDeadlineInfo(due, done) {
 
   // Une tâche est considérée comme due à la fin du jour choisi.
   // Construction en heure LOCALE pour éviter les décalages UTC.
+  const [endHour, endMinute] = String(endOfDay)
+  .split(":")
+  .map(Number);
+
+  const safeHour = Number.isInteger(endHour)
+    ? endHour
+    : 17;
+
+  const safeMinute = Number.isInteger(endMinute)
+    ? endMinute
+    : 0;
+
   const deadline = new Date(
     Number(year),
     Number(month) - 1,
     Number(day),
-    17,
-    0,
+    safeHour,
+    safeMinute,
     0,
     0
   );
@@ -129,8 +154,14 @@ function getDeadlineInfo(due, done) {
   }
 
   // Échéance dans moins de 48 h
-  if (diffMs < 48 * HOUR_MS) {
-    const days = Math.floor(diffMs / DAY_MS);
+  const alertHours = Number(dueSoonHours);
+
+  const safeAlertHours =
+    Number.isFinite(alertHours) && alertHours > 0
+      ? alertHours
+      : 48;
+
+  if (diffMs < safeAlertHours * HOUR_MS) {    const days = Math.floor(diffMs / DAY_MS);
     const hours = Math.floor(
       (diffMs % DAY_MS) / HOUR_MS
     );
@@ -149,7 +180,6 @@ function getDeadlineInfo(due, done) {
     label: null,
   };
 }
-
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -172,6 +202,101 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
+  async function loadSettings() {
+    if (!session?.user?.id) return null;
+
+    setSettingsLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("user_settings")
+      .select(
+        "end_of_day, due_soon_hours, trash_retention_days, completed_retention_days"
+      )
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+
+    if (error) {
+      setError(
+        `Impossible de charger les paramètres : ${error.message}`
+      );
+      setSettingsLoading(false);
+      return null;
+    }
+
+    // Première connexion : création des paramètres par défaut
+    if (!data) {
+      const initialSettings = {
+        user_id: session.user.id,
+        ...DEFAULT_SETTINGS,
+      };
+
+      const { data: created, error: insertError } =
+        await supabase
+          .from("user_settings")
+          .insert(initialSettings)
+          .select(
+            "end_of_day, due_soon_hours, trash_retention_days, completed_retention_days"
+          )
+          .single();
+
+      if (insertError) {
+        setError(
+          `Impossible de créer les paramètres : ${insertError.message}`
+        );
+        setSettingsLoading(false);
+        return null;
+      }
+
+      const normalizedSettings = {
+        end_of_day: String(
+          created.end_of_day
+        ).slice(0, 5),
+        due_soon_hours: Number(
+          created.due_soon_hours
+        ),
+        trash_retention_days: Number(
+          created.trash_retention_days
+        ),
+        completed_retention_days: Number(
+          created.completed_retention_days
+        ),
+      };
+
+      setSettings(normalizedSettings);
+      setSettingsLoading(false);
+
+      return normalizedSettings;
+    }
+
+    const normalizedSettings = {
+      end_of_day: String(
+        data.end_of_day
+      ).slice(0, 5),
+      due_soon_hours: Number(
+        data.due_soon_hours
+      ),
+      trash_retention_days: Number(
+        data.trash_retention_days
+      ),
+      completed_retention_days: Number(
+        data.completed_retention_days
+      ),
+    };
+
+setSettings(normalizedSettings);
+setSettingsLoading(false);
+
+return normalizedSettings;
+
+    return data;
+}
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -188,11 +313,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session?.user) {
-      loadTasks();
-    } else {
+    if (!session?.user) {
       setTasks([]);
+      setSettings(DEFAULT_SETTINGS);
+      return;
     }
+
+    initializeUserData();
   }, [session?.user?.id]);
 
   async function signIn(event) {
@@ -234,6 +361,156 @@ export default function App() {
     }
 
     setLoading(false);
+  }
+
+  async function purgeExpiredTrash(retentionDays) {
+    if (!session?.user?.id) return;
+
+    const days = Number(retentionDays);
+
+    if (!Number.isFinite(days) || days <= 0) {
+      return;
+    }
+
+    const cutoff = new Date();
+
+    cutoff.setDate(
+      cutoff.getDate() - days
+    );
+
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("user_id", session.user.id)
+      .not("deleted_at", "is", null)
+      .lt("deleted_at", cutoff.toISOString());
+
+    if (error) {
+      console.error(
+        "Erreur pendant la purge de la corbeille :",
+        error.message
+      );
+
+      setError(
+        `La purge automatique n’a pas pu être effectuée : ${error.message}`
+      );
+    }
+  }
+
+  async function purgeExpiredCompleted(retentionDays) {
+    if (!session?.user?.id) return;
+
+    const days = Number(retentionDays);
+
+    if (!Number.isFinite(days) || days <= 0) {
+      return;
+    }
+
+    const cutoff = new Date();
+
+    cutoff.setDate(
+      cutoff.getDate() - days
+    );
+
+    const { error: purgeError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("user_id", session.user.id)
+      .eq("done", true)
+      .is("deleted_at", null)
+      .not("completed_at", "is", null)
+      .lt("completed_at", cutoff.toISOString());
+
+    if (purgeError) {
+      console.error(
+        "Erreur pendant la purge des tâches terminées :",
+        purgeError.message
+      );
+
+      setError(
+        `La purge des tâches terminées n’a pas pu être effectuée : ${purgeError.message}`
+      );
+
+      return false;
+    }
+
+    return true;
+  }
+
+  async function initializeUserData() {
+    const loadedSettings = await loadSettings();
+
+    if (!loadedSettings) {
+      await loadTasks();
+      return;
+    }
+
+    await purgeExpiredTrash(
+      loadedSettings.trash_retention_days
+    );
+
+    await purgeExpiredCompleted(
+      loadedSettings.completed_retention_days
+    );
+
+    await loadTasks();
+  }
+
+  async function saveSettings() {
+    if (!session?.user?.id) return;
+
+    setSettingsSaving(true);
+    setError("");
+
+    const values = {
+      user_id: session.user.id,
+      end_of_day: String(
+        settings.end_of_day
+      ).slice(0, 5),
+      due_soon_hours: Number(
+        settings.due_soon_hours
+      ),
+      trash_retention_days: Number(
+        settings.trash_retention_days
+      ),
+      completed_retention_days: Number(
+        settings.completed_retention_days
+      ),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from("user_settings")
+      .upsert(values, {
+        onConflict: "user_id",
+      })
+      .select(
+        "end_of_day, due_soon_hours, trash_retention_days, completed_retention_days"
+      )
+      .single();
+
+    if (error) {
+      setError(
+        `Impossible d’enregistrer les paramètres : ${error.message}`
+      );
+      setSettingsSaving(false);
+      return;
+    }
+
+    setSettings(data);
+    setSettingsOpen(false);
+    setSettingsSaving(false);
+
+    // Appliquer immédiatement le nouveau délai de rétention
+    await purgeExpiredTrash(
+      data.trash_retention_days
+    );
+
+    await purgeExpiredCompleted(
+      data.completed_retention_days
+    );
+
+    await loadTasks();
   }
 
   function openNewTask(quadrant = "do") {
@@ -506,6 +783,14 @@ export default function App() {
 
         <button
           className="icon-button"
+          onClick={() => setSettingsOpen(true)}
+          title="Paramètres"
+        >
+          <Settings size={18} />
+        </button>
+
+        <button
+          className="icon-button"
           onClick={signOut}
           title={`Déconnexion de ${session.user.email}`}
         >
@@ -606,6 +891,7 @@ export default function App() {
                       <div className="task-list">
                         {quadrantTasks.map((task) => (
                           <TaskCard
+                            settings={settings}
                             key={task.id}
                             task={task}
                             onEdit={() => openEditTask(task)}
@@ -638,6 +924,7 @@ export default function App() {
                 {activeTasks.length ? (
                   activeTasks.map((task) => (
                     <TaskCard
+                      settings={settings}
                       key={task.id}
                       task={task}
                       onEdit={() => openEditTask(task)}
@@ -665,6 +952,7 @@ export default function App() {
             {completedTasks.length ? (
               completedTasks.map((task) => (
                 <TaskCard
+                  settings={settings}
                   key={task.id}
                   task={task}
                   onEdit={() => openEditTask(task)}
@@ -862,11 +1150,172 @@ export default function App() {
           </div>
         </div>
       )}
+      {settingsOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => setSettingsOpen(false)}
+        >
+          <div
+            className="modal settings-modal"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Paramètres</h2>
+                <p className="settings-description">
+                  Ces préférences sont propres à ton compte.
+                </p>
+              </div>
+
+              <button
+                className="icon-button"
+                onClick={() => setSettingsOpen(false)}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <div className="settings-section">
+              <h3>Organisation</h3>
+
+              <label>
+                Heure de fin de journée
+
+                <input
+                  type="time"
+                  value={String(settings.end_of_day).slice(0, 5)}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      end_of_day: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
+              <p className="settings-help">
+                Une tâche sera considérée en retard après cette
+                heure le jour de son échéance.
+              </p>
+
+              <label>
+                Alerte d’échéance proche
+
+                <select
+                  value={settings.due_soon_hours}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      due_soon_hours: Number(e.target.value),
+                    })
+                  }
+                >
+                  <option value={12}>12 heures</option>
+                  <option value={24}>24 heures</option>
+                  <option value={48}>48 heures</option>
+                  <option value={72}>3 jours</option>
+                  <option value={168}>7 jours</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="settings-section">
+              <h3>Corbeille</h3>
+
+              <label>
+                Purger les tâches terminées et supprimées après
+
+                <select
+                  value={settings.trash_retention_days}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      trash_retention_days: Number(e.target.value),
+                    })
+                  }
+                >
+                  <option value={7}>7 jours</option>
+                  <option value={14}>14 jours</option>
+                  <option value={30}>30 jours</option>
+                  <option value={60}>60 jours</option>
+                  <option value={90}>90 jours</option>
+                </select>
+              </label>
+
+              <p className="settings-help">
+                Toute tâche placée dans la corbeille sera supprimée
+                définitivement une fois ce délai dépassé, qu’elle ait
+                été terminée ou non.
+              </p>
+            </div>
+
+            <div className="settings-section">
+              <h3>Historique</h3>
+
+              <label>
+                Conserver les tâches terminées pendant
+
+                <select
+                  value={settings.completed_retention_days}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      completed_retention_days: Number(
+                        e.target.value
+                      ),
+                    })
+                  }
+                >
+                  <option value={1}>1 jour</option>
+                  <option value={3}>3 jours</option>
+                  <option value={7}>7 jours</option>
+                  <option value={14}>14 jours</option>
+                  <option value={30}>30 jours</option>
+                  <option value={90}>90 jours</option>
+                </select>
+              </label>
+
+              <p className="settings-help">
+                Les tâches terminées depuis plus longtemps
+                seront supprimées définitivement.
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                onClick={() => setSettingsOpen(false)}
+              >
+                Annuler
+              </button>
+
+              <button
+                className="primary-button"
+                onClick={saveSettings}
+                disabled={settingsSaving}
+              >
+                {settingsSaving ? (
+                  <>
+                    <Loader2 size={17} className="spin" />
+                    Enregistrement...
+                  </>
+                ) : (
+                  <>
+                    <Check size={17} />
+                    Enregistrer
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function TaskCard({
+  settings,
   task,
   onEdit,
   onComplete,
@@ -875,7 +1324,9 @@ function TaskCard({
 
   const deadlineInfo = getDeadlineInfo(
     task.due,
-    task.done
+    task.done,
+    settings?.end_of_day,
+    settings?.due_soon_hours
   );
 
   function formatDate(date) {

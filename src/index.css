@@ -848,3 +848,50 @@ textarea::placeholder {
   background: #fee2e2;
   font-weight: 700;
 }
+
+.settings-modal {
+  max-width: 560px;
+}
+
+.settings-description {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.settings-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.settings-section:first-of-type {
+  margin-top: 8px;
+}
+
+.settings-section h3 {
+  margin: 0 0 16px;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.settings-section label {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  color: #1e293b;
+  font-weight: 650;
+}
+
+.settings-section input,
+.settings-section select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-help {
+  margin: 7px 0 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
