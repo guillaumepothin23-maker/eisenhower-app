@@ -42,7 +42,7 @@ const QUADRANTS = [
   },
   {
     id: "eliminate",
-    title: "Éliminer",
+    title: "Éliminer ou Bonus",
     subtitle: "Ni urgent, ni important",
     className: "quadrant-grey",
   },
