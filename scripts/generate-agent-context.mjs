@@ -3,9 +3,14 @@ import path from "node:path";
 
 const root = process.cwd();
 
-const outputDir = path.join(root, "public", "agent");
+// Sortie HTML actuelle pour Vercel
+const htmlOutputDir = path.join(root, "public", "agent");
 
-fs.mkdirSync(outputDir, { recursive: true });
+// Sortie Markdown destinée à OneDrive / Copilot
+const mdOutputDir = path.join(root, "agent-context");
+
+fs.mkdirSync(htmlOutputDir, { recursive: true });
+fs.mkdirSync(mdOutputDir, { recursive: true });
 
 function read(relativePath) {
   const absolutePath = path.join(root, relativePath);
@@ -24,11 +29,20 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;");
 }
 
-function page(title, sections) {
-  const commit =
+function getCommit() {
+  return (
     process.env.VERCEL_GIT_COMMIT_SHA ||
     process.env.GITHUB_SHA ||
-    "development";
+    "development"
+  );
+}
+
+/* =========================================================
+   HTML - génération actuelle conservée pour Vercel
+   ========================================================= */
+
+function page(title, sections) {
+  const commit = getCommit();
 
   const body = sections
     .map(
@@ -39,7 +53,7 @@ function page(title, sections) {
         </section>
       `
     )
-    .join("\\n");
+    .join("\n");
 
   return `<!doctype html>
 <html lang="fr">
@@ -51,7 +65,7 @@ function page(title, sections) {
 
   <meta
     name="description"
-    content="Documentation technique publique de Ma Matrice Eisenhower"
+    content="Documentation technique de Ma Matrice Eisenhower"
   >
 
   <style>
@@ -105,6 +119,108 @@ ${body}
 </html>`;
 }
 
+/* =========================================================
+   MARKDOWN - connaissance structurée pour Copilot
+   ========================================================= */
+
+function markdownDocument(title, sections) {
+  const commit = getCommit();
+
+  const body = sections
+    .map(
+      ({ title, content, language = "" }) => `## ${title}
+
+\`\`\`${language}
+${content}
+\`\`\`
+`
+    )
+    .join("\n---\n\n");
+
+  return `# ${title}
+
+Version Git : ${commit}
+
+${body}
+`;
+}
+
+function codeDocument(files) {
+  const commit = getCommit();
+
+  const inventory = files
+    .map(({ path: filePath }) => `- ${filePath}`)
+    .join("\n");
+
+  const body = files
+    .map(
+      ({ path: filePath, language }) => `# FILE: ${filePath}
+
+Path: ${filePath}
+Type: application source file
+
+\`\`\`${language}
+${read(filePath)}
+\`\`\`
+`
+    )
+    .join("\n---\n\n");
+
+  return `# Ma Matrice Eisenhower - État actuel du code source
+
+Ce document contient le code source actuel de l'application Ma Matrice Eisenhower.
+
+Version Git : ${commit}
+
+## Inventaire des fichiers source
+
+${inventory}
+
+---
+
+${body}
+`;
+}
+
+/* =========================================================
+   Définition du code source
+   ========================================================= */
+
+const sourceFiles = [
+  {
+    path: "src/App.jsx",
+    language: "jsx",
+  },
+  {
+    path: "src/main.jsx",
+    language: "jsx",
+  },
+  {
+    path: "src/index.css",
+    language: "css",
+  },
+  {
+    path: "src/supabase.js",
+    language: "javascript",
+  },
+  {
+    path: "src/ReloadPrompt.jsx",
+    language: "jsx",
+  },
+  {
+    path: "package.json",
+    language: "json",
+  },
+  {
+    path: "vite.config.js",
+    language: "javascript",
+  },
+];
+
+/* =========================================================
+   HTML
+   ========================================================= */
+
 const projectPage = page(
   "Ma Matrice Eisenhower - Contexte produit",
   [
@@ -145,52 +261,101 @@ const roadmapPage = page(
 
 const codePage = page(
   "Ma Matrice Eisenhower - État actuel du code",
-  [
-    {
-      title: "src/App.jsx",
-      content: read("src/App.jsx"),
-    },
-    {
-      title: "src/index.css",
-      content: read("src/index.css"),
-    },
-    {
-      title: "src/supabase.js",
-      content: read("src/supabase.js"),
-    },
-    {
-      title: "src/ReloadPrompt.jsx",
-      content: read("src/ReloadPrompt.jsx"),
-    },
-    {
-      title: "package.json",
-      content: read("package.json"),
-    },
-    {
-      title: "vite.config.js",
-      content: read("vite.config.js"),
-    },
-  ]
+  sourceFiles.map(({ path: filePath }) => ({
+    title: filePath,
+    content: read(filePath),
+  }))
 );
 
 fs.writeFileSync(
-  path.join(outputDir, "project.html"),
+  path.join(htmlOutputDir, "project.html"),
   projectPage
 );
 
 fs.writeFileSync(
-  path.join(outputDir, "database.html"),
+  path.join(htmlOutputDir, "database.html"),
   databasePage
 );
 
 fs.writeFileSync(
-  path.join(outputDir, "roadmap.html"),
+  path.join(htmlOutputDir, "roadmap.html"),
   roadmapPage
 );
 
 fs.writeFileSync(
-  path.join(outputDir, "code.html"),
+  path.join(htmlOutputDir, "code.html"),
   codePage
 );
 
+/* =========================================================
+   MARKDOWN POUR COPILOT
+   ========================================================= */
+
+const projectMarkdown = markdownDocument(
+  "Ma Matrice Eisenhower - Contexte produit",
+  [
+    {
+      title: "Vision produit",
+      content: read("docs/PRODUCT_VISION.md"),
+      language: "markdown",
+    },
+    {
+      title: "Architecture",
+      content: read("docs/ARCHITECTURE.md"),
+      language: "markdown",
+    },
+    {
+      title: "Décisions",
+      content: read("docs/DECISIONS.md"),
+      language: "markdown",
+    },
+  ]
+);
+
+const databaseMarkdown = markdownDocument(
+  "Ma Matrice Eisenhower - Base de données",
+  [
+    {
+      title: "Database",
+      content: read("docs/DATABASE.md"),
+      language: "markdown",
+    },
+  ]
+);
+
+const roadmapMarkdown = markdownDocument(
+  "Ma Matrice Eisenhower - Roadmap",
+  [
+    {
+      title: "Roadmap",
+      content: read("docs/ROADMAP.md"),
+      language: "markdown",
+    },
+  ]
+);
+
+const codeMarkdown = codeDocument(sourceFiles);
+
+fs.writeFileSync(
+  path.join(mdOutputDir, "project.md"),
+  projectMarkdown
+);
+
+fs.writeFileSync(
+  path.join(mdOutputDir, "database.md"),
+  databaseMarkdown
+);
+
+fs.writeFileSync(
+  path.join(mdOutputDir, "roadmap.md"),
+  roadmapMarkdown
+);
+
+fs.writeFileSync(
+  path.join(mdOutputDir, "code.md"),
+  codeMarkdown
+);
+
 console.log("Agent context generated.");
+console.log(`HTML: ${htmlOutputDir}`);
+console.log(`Markdown: ${mdOutputDir}`);

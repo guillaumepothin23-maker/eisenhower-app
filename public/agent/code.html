@@ -8,7 +8,7 @@
 
   <meta
     name="description"
-    content="Documentation technique publique de Ma Matrice Eisenhower"
+    content="Documentation technique de Ma Matrice Eisenhower"
   >
 
   <style>
@@ -1505,7 +1505,28 @@ function EmptyState({ text }) {
   return &lt;div className="empty-state"&gt;{text}&lt;/div&gt;;
 }</pre>
         </section>
-      \n
+      
+
+        <section>
+          <h2>src/main.jsx</h2>
+          <pre>import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App.jsx";
+import { registerSW } from 'virtual:pwa-register'
+
+registerSW({
+  immediate: true
+})
+
+createRoot(document.getElementById("root")).render(
+  &lt;StrictMode&gt;
+    &lt;App /&gt;
+  &lt;/StrictMode&gt;
+);</pre>
+        </section>
+      
+
         <section>
           <h2>src/index.css</h2>
           <pre>:root {
@@ -2406,7 +2427,8 @@ textarea::placeholder {
   line-height: 1.45;
 }</pre>
         </section>
-      \n
+      
+
         <section>
           <h2>src/supabase.js</h2>
           <pre>import { createClient } from "@supabase/supabase-js";
@@ -2422,7 +2444,8 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);</pre>
         </section>
-      \n
+      
+
         <section>
           <h2>src/ReloadPrompt.jsx</h2>
           <pre>import { useRegisterSW } from 'virtual:pwa-register/react'
@@ -2488,7 +2511,8 @@ export default function ReloadPrompt() {
   )
 }</pre>
         </section>
-      \n
+      
+
         <section>
           <h2>package.json</h2>
           <pre>{
@@ -2521,7 +2545,8 @@ export default function ReloadPrompt() {
 }
 </pre>
         </section>
-      \n
+      
+
         <section>
           <h2>vite.config.js</h2>
           <pre>// import react from '@vitejs/plugin-react'

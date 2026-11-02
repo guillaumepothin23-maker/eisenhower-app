@@ -7,6 +7,7 @@ Version Git : development
 ## Inventaire des fichiers source
 
 - src/App.jsx
+- src/main.jsx
 - src/index.css
 - src/supabase.js
 - src/ReloadPrompt.jsx
@@ -1466,6 +1467,31 @@ function TaskCard({
 function EmptyState({ text }) {
   return <div className="empty-state">{text}</div>;
 }
+```
+
+---
+
+# FILE: src/main.jsx
+
+Path: src/main.jsx
+Type: application source file
+
+```jsx
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App.jsx";
+import { registerSW } from 'virtual:pwa-register'
+
+registerSW({
+  immediate: true
+})
+
+createRoot(document.getElementById("root")).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
 ```
 
 ---
