@@ -204,6 +204,7 @@ export default function App() {
   const [authError, setAuthError] = useState("");
 
   const [tasks, setTasks] = useState([]);
+  const [subtasks, setSubtasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -331,6 +332,7 @@ return normalizedSettings;
   useEffect(() => {
     if (!session?.user) {
       setTasks([]);
+      setSubtasks([]);
       setSettings(DEFAULT_SETTINGS);
       return;
     }
@@ -377,6 +379,23 @@ return normalizedSettings;
     }
 
     setLoading(false);
+  }
+
+  async function loadSubtasks() {
+    if (!session?.user?.id) return;
+
+    const { data, error: loadError } = await supabase
+      .from("subtasks")
+      .select("id, task_id, user_id, title, due, done, created_at, updated_at")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: true });
+
+    if (loadError) {
+      setError(`Impossible de charger les sous-tâches : ${loadError.message}`);
+      return;
+    }
+
+    setSubtasks(data ?? []);
   }
 
   async function purgeExpiredTrash(retentionDays) {
@@ -457,7 +476,7 @@ return normalizedSettings;
     const loadedSettings = await loadSettings();
 
     if (!loadedSettings) {
-      await loadTasks();
+      await Promise.all([loadTasks(), loadSubtasks()]);
       return;
     }
 
@@ -469,7 +488,7 @@ return normalizedSettings;
       loadedSettings.completed_retention_days
     );
 
-    await loadTasks();
+    await Promise.all([loadTasks(), loadSubtasks()]);
   }
 
   async function saveSettings() {
@@ -624,6 +643,82 @@ return normalizedSettings;
     setQuickAddingQuadrant(null);
 
     await loadTasks();
+  }
+
+  async function addSubtask(taskId, values) {
+    const title = values.title.trim();
+
+    if (!title || !session?.user?.id) return false;
+
+    setError("");
+
+    const { error: insertError } = await supabase
+      .from("subtasks")
+      .insert({
+        task_id: taskId,
+        user_id: session.user.id,
+        title,
+        due: values.due || null,
+      });
+
+    if (insertError) {
+      setError(`Impossible d’ajouter la sous-tâche : ${insertError.message}`);
+      return false;
+    }
+
+    await loadSubtasks();
+    return true;
+  }
+
+  async function updateSubtask(id, changes) {
+    setError("");
+
+    const values = {
+      ...changes,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (Object.prototype.hasOwnProperty.call(values, "title")) {
+      values.title = values.title.trim();
+
+      if (!values.title) return false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(values, "due")) {
+      values.due = values.due || null;
+    }
+
+    const { error: updateError } = await supabase
+      .from("subtasks")
+      .update(values)
+      .eq("id", id)
+      .eq("user_id", session.user.id);
+
+    if (updateError) {
+      setError(`Impossible de modifier la sous-tâche : ${updateError.message}`);
+      return false;
+    }
+
+    await loadSubtasks();
+    return true;
+  }
+
+  async function deleteSubtask(id) {
+    setError("");
+
+    const { error: deleteError } = await supabase
+      .from("subtasks")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", session.user.id);
+
+    if (deleteError) {
+      setError(`Impossible de supprimer la sous-tâche : ${deleteError.message}`);
+      return false;
+    }
+
+    await loadSubtasks();
+    return true;
   }
 
   async function updateTask(id, changes) {
@@ -976,6 +1071,10 @@ return normalizedSettings;
                             settings={settings}
                             key={task.id}
                             task={task}
+                            subtasks={subtasks.filter((subtask) => subtask.task_id === task.id)}
+                            onAddSubtask={addSubtask}
+                            onUpdateSubtask={updateSubtask}
+                            onDeleteSubtask={deleteSubtask}
                             onEdit={() => openEditTask(task)}
                             onComplete={() =>
                               updateTask(task.id, {
@@ -1009,6 +1108,10 @@ return normalizedSettings;
                       settings={settings}
                       key={task.id}
                       task={task}
+                      subtasks={subtasks.filter((subtask) => subtask.task_id === task.id)}
+                      onAddSubtask={addSubtask}
+                      onUpdateSubtask={updateSubtask}
+                      onDeleteSubtask={deleteSubtask}
                       onEdit={() => openEditTask(task)}
                       onComplete={() =>
                         updateTask(task.id, {
@@ -1037,6 +1140,10 @@ return normalizedSettings;
                   settings={settings}
                   key={task.id}
                   task={task}
+                  subtasks={subtasks.filter((subtask) => subtask.task_id === task.id)}
+                  onAddSubtask={addSubtask}
+                  onUpdateSubtask={updateSubtask}
+                  onDeleteSubtask={deleteSubtask}
                   onEdit={() => openEditTask(task)}
                   onComplete={() =>
                     updateTask(task.id, {
@@ -1399,12 +1506,24 @@ return normalizedSettings;
 function TaskCard({
   settings,
   task,
+  subtasks,
+  onAddSubtask,
+  onUpdateSubtask,
+  onDeleteSubtask,
   onEdit,
   onComplete,
   onDelete,
 }) {
+  const [subtaskFormOpen, setSubtaskFormOpen] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [newSubtaskDue, setNewSubtaskDue] = useState("");
+  const [editingSubtaskId, setEditingSubtaskId] = useState(null);
+  const [editingSubtaskTitle, setEditingSubtaskTitle] = useState("");
+  const [editingSubtaskDue, setEditingSubtaskDue] = useState("");
+  const [subtaskSaving, setSubtaskSaving] = useState(false);
 
   const tagStyle = TAG_STYLES[task.tag] ?? DEFAULT_TAG_STYLE;
+  const completedSubtasks = subtasks.filter((subtask) => subtask.done).length;
   const deadlineInfo = getDeadlineInfo(
     task.due,
     task.done,
@@ -1441,6 +1560,46 @@ function TaskCard({
       month: "short",
       year: "numeric",
     }).format(parsedDate);
+  }
+
+  async function handleAddSubtask(event) {
+    event.preventDefault();
+
+    if (!newSubtaskTitle.trim() || subtaskSaving) return;
+
+    setSubtaskSaving(true);
+    const created = await onAddSubtask(task.id, {
+      title: newSubtaskTitle,
+      due: newSubtaskDue,
+    });
+    setSubtaskSaving(false);
+
+    if (created) {
+      setNewSubtaskTitle("");
+      setNewSubtaskDue("");
+      setSubtaskFormOpen(false);
+    }
+  }
+
+  function startEditingSubtask(subtask) {
+    setEditingSubtaskId(subtask.id);
+    setEditingSubtaskTitle(subtask.title);
+    setEditingSubtaskDue(formatDueDate(subtask.due));
+  }
+
+  async function saveEditedSubtask(subtaskId) {
+    if (!editingSubtaskTitle.trim() || subtaskSaving) return;
+
+    setSubtaskSaving(true);
+    const updated = await onUpdateSubtask(subtaskId, {
+      title: editingSubtaskTitle,
+      due: editingSubtaskDue,
+    });
+    setSubtaskSaving(false);
+
+    if (updated) {
+      setEditingSubtaskId(null);
+    }
   }
 
   return (
@@ -1483,6 +1642,172 @@ function TaskCard({
           </p>
         )}
 
+        {(subtasks.length > 0 || subtaskFormOpen) && (
+          <div className="subtasks">
+            {subtasks.length > 0 && (
+              <>
+                <div className="subtasks-summary">
+                  <span>Sous-tâches</span>
+                  <span className="subtask-progress">
+                    {completedSubtasks}/{subtasks.length}
+                  </span>
+                </div>
+                <div className="subtasks-panel">
+          {subtasks.map((subtask) => {
+            const subtaskDeadline = getDeadlineInfo(
+              subtask.due,
+              subtask.done,
+              settings?.end_of_day,
+              settings?.due_soon_hours
+            );
+            const isEditing = editingSubtaskId === subtask.id;
+
+            return (
+              <div className="subtask-row" key={subtask.id}>
+                <button
+                  type="button"
+                  className={
+                    subtask.done
+                      ? "subtask-check subtask-check-done"
+                      : "subtask-check"
+                  }
+                  onClick={() =>
+                    onUpdateSubtask(subtask.id, { done: !subtask.done })
+                  }
+                  aria-label={
+                    subtask.done
+                      ? `Rouvrir ${subtask.title}`
+                      : `Terminer ${subtask.title}`
+                  }
+                >
+                  {subtask.done && <Check size={11} />}
+                </button>
+
+                {isEditing ? (
+                  <div className="subtask-edit-fields">
+                    <input
+                      value={editingSubtaskTitle}
+                      onChange={(event) => setEditingSubtaskTitle(event.target.value)}
+                      aria-label="Titre de la sous-tâche"
+                    />
+                    <input
+                      type="date"
+                      value={editingSubtaskDue}
+                      onChange={(event) => setEditingSubtaskDue(event.target.value)}
+                      aria-label="Échéance de la sous-tâche"
+                    />
+                  </div>
+                ) : (
+                  <div className="subtask-content">
+                    <span className={subtask.done ? "subtask-title subtask-title-done" : "subtask-title"}>
+                      {subtask.title}
+                    </span>
+                    {subtask.due && (
+                      <span
+                        className={
+                          subtaskDeadline?.type === "overdue"
+                            ? "subtask-due overdue"
+                            : subtaskDeadline?.type === "soon"
+                            ? "subtask-due soon"
+                            : "subtask-due"
+                        }
+                      >
+                        <Clock3 size={11} />
+                        {subtaskDeadline?.label || formatDate(subtask.due)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="subtask-actions">
+                  {isEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => saveEditedSubtask(subtask.id)}
+                        disabled={subtaskSaving}
+                        aria-label="Enregistrer la sous-tâche"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => setEditingSubtaskId(null)}
+                        aria-label="Annuler la modification"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => startEditingSubtask(subtask)}
+                        aria-label={`Modifier ${subtask.title}`}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button icon-danger"
+                        onClick={() => onDeleteSubtask(subtask.id)}
+                        aria-label={`Supprimer ${subtask.title}`}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+                </div>
+              </>
+            )}
+
+            {subtaskFormOpen && (
+              <form className="subtask-add" onSubmit={handleAddSubtask}>
+                <input
+                  autoFocus
+                  value={newSubtaskTitle}
+                  onChange={(event) => setNewSubtaskTitle(event.target.value)}
+                  placeholder="Ajouter une sous-tâche…"
+                  aria-label="Nouvelle sous-tâche"
+                />
+                <input
+                  type="date"
+                  value={newSubtaskDue}
+                  onChange={(event) => setNewSubtaskDue(event.target.value)}
+                  aria-label="Échéance de la nouvelle sous-tâche"
+                />
+                <button
+                  type="submit"
+                  className="icon-button"
+                  disabled={!newSubtaskTitle.trim() || subtaskSaving}
+                  aria-label="Ajouter la sous-tâche"
+                >
+                  {subtaskSaving ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => {
+                    setSubtaskFormOpen(false);
+                    setNewSubtaskTitle("");
+                    setNewSubtaskDue("");
+                  }}
+                  aria-label="Annuler l’ajout de la sous-tâche"
+                >
+                  <X size={14} />
+                </button>
+              </form>
+            )}
+          </div>
+        )}
         <div className="task-meta">
           <span
             className={
@@ -1517,6 +1842,16 @@ function TaskCard({
           onClick={onEdit}
         >
           <Pencil size={15} />
+        </button>
+
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => setSubtaskFormOpen(true)}
+          aria-label={`Ajouter une sous-tâche à ${task.title}`}
+          title="Ajouter une sous-tâche"
+        >
+          <Plus size={15} />
         </button>
 
         <button
