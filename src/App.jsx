@@ -57,6 +57,20 @@ const TAGS = [
   "Perso",
 ];
 
+const TAG_STYLES = {
+  Travail: { color: "#e6007e", background: "#fce7f3" },
+  Maison: { color: "#c2410c", background: "#ffedd5" },
+  Famille: { color: "#1d4ed8", background: "#dbeafe" },
+  Finance: { color: "#b91c1c", background: "#fee2e2" },
+  Admin: { color: "#6d28d9", background: "#ede9fe" },
+  Perso: { color: "#047857", background: "#d1fae5" },
+};
+
+const DEFAULT_TAG_STYLE = {
+  color: "#475569",
+  background: "#e2e8f0",
+};
+
 const EMPTY_FORM = {
   title: "",
   quadrant: "do",
@@ -206,6 +220,8 @@ export default function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [quickTitles, setQuickTitles] = useState({});
+  const [quickAddingQuadrant, setQuickAddingQuadrant] = useState(null);
 
   async function loadSettings() {
     if (!session?.user?.id) return null;
@@ -576,6 +592,40 @@ return normalizedSettings;
     await loadTasks();
   }
 
+  async function quickAddTask(quadrant) {
+    const title = (quickTitles[quadrant] ?? "").trim();
+
+    if (!title || quickAddingQuadrant) return;
+
+    setError("");
+    setQuickAddingQuadrant(quadrant);
+
+    const { error: insertError } = await supabase.from("tasks").insert({
+      title,
+      quadrant,
+      due: null,
+      tag: "Perso",
+      notes: null,
+      user_id: session.user.id,
+      done: false,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (insertError) {
+      setError(insertError.message);
+      setQuickAddingQuadrant(null);
+      return;
+    }
+
+    setQuickTitles((current) => ({
+      ...current,
+      [quadrant]: "",
+    }));
+    setQuickAddingQuadrant(null);
+
+    await loadTasks();
+  }
+
   async function updateTask(id, changes) {
     setError("");
 
@@ -886,6 +936,38 @@ return normalizedSettings;
                         >
                           <Plus size={18} />
                         </button>
+                      </div>
+
+                      <div className="quick-add">
+                        <Plus size={15} aria-hidden="true" />
+                        <input
+                          value={quickTitles[quadrant.id] ?? ""}
+                          onChange={(event) =>
+                            setQuickTitles((current) => ({
+                              ...current,
+                              [quadrant.id]: event.target.value,
+                            }))
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              quickAddTask(quadrant.id);
+                            }
+
+                            if (event.key === "Escape") {
+                              setQuickTitles((current) => ({
+                                ...current,
+                                [quadrant.id]: "",
+                              }));
+                            }
+                          }}
+                          disabled={quickAddingQuadrant === quadrant.id}
+                          placeholder="Ajouter une tâche…"
+                          aria-label={`Ajouter une tâche dans ${quadrant.title}`}
+                        />
+                        {quickAddingQuadrant === quadrant.id && (
+                          <Loader2 size={15} className="spin" />
+                        )}
                       </div>
 
                       <div className="task-list">
@@ -1322,6 +1404,7 @@ function TaskCard({
   onDelete,
 }) {
 
+  const tagStyle = TAG_STYLES[task.tag] ?? DEFAULT_TAG_STYLE;
   const deadlineInfo = getDeadlineInfo(
     task.due,
     task.done,
@@ -1363,6 +1446,7 @@ function TaskCard({
   return (
     <article
       className="task"
+      style={{ "--tag-color": tagStyle.color }}
       draggable={!task.done}
       onDragStart={(e) =>
         e.dataTransfer.setData("taskId", task.id)
@@ -1414,9 +1498,15 @@ function TaskCard({
             {deadlineInfo?.label || formatDate(task.due)}
           </span>
 
-          <span className="task-tag">
+          <span
+            className="task-tag"
+            style={{
+              color: tagStyle.color,
+              backgroundColor: tagStyle.background,
+            }}
+          >
             <Tag size={12} />
-            {task.tag}
+            {task.tag || "Sans tag"}
           </span>
         </div>
       </div>
